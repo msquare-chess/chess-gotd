@@ -1,0 +1,54 @@
+# GOTD - sends what your devices ask for, and the week plan (v6_2026-11-16, KT sections 331 + 332; v5 = KT 318).
+# Made by SETUP on the PC (it updates this file) - please do not edit it here.
+# Runs ONLY on the main branch. A request is accepted only when it is signed by one of your devices (devices.json on
+# the gotd-outbox branch); the token that starts a run proves nothing by itself. The Firebase, feed, inbox, team and
+# device-access keys stay in GitHub's secret store. The work is done by .gotd-admin/gotd_action.py.
+name: gotd-admin
+run-name: gotd ${{ inputs.id || 'plan' }}
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: request id
+        required: true
+        type: string
+      box:
+        description: sealed request
+        required: true
+        type: string
+  schedule:
+    - cron: "2,17,32,47 * * * *"     # the week plan: due items go out within ~15 minutes of their time
+permissions:
+  contents: write
+  pages: write
+concurrency:
+  group: gotd-send
+  queue: max      # KT 332: every request waits its turn (the default dropped a waiting one when a newer one came)
+jobs:
+  send:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .gotd-admin
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: .gotd-admin/requirements.txt
+      - name: Install
+        run: python -m pip install --disable-pip-version-check -q -r .gotd-admin/requirements.txt
+      - name: Check and do
+        env:
+          REQ_ID: ${{ inputs.id }}
+          REQ_BOX: ${{ inputs.box }}
+          GOTD_INBOX_KEY2: ${{ secrets.GOTD_INBOX_KEY2 }}
+          GOTD_FIREBASE_KEY: ${{ secrets.GOTD_FIREBASE_KEY }}
+          GOTD_FEED_KEY: ${{ secrets.GOTD_FEED_KEY }}
+          GOTD_FEED_KEY_SPARE: ${{ secrets.GOTD_FEED_KEY_SPARE }}
+          GOTD_TEAM_KEY: ${{ secrets.GOTD_TEAM_KEY }}
+          GOTD_DOORBELL: ${{ secrets.GOTD_DOORBELL }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python .gotd-admin/gotd_action.py
