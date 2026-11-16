@@ -10,5 +10,12 @@
    "by": "owner sign-in"
   }
  ],
- "tickets": []
+ "tickets": [
+  {
+   "hash": "41dbdc096320a2ffe776b35ff94e57a2f1d3e384c85c42fd05c44e67fcf68644",
+   "expires": 1794837253,
+   "by": "b32f1bfb39c8b08a"
+  }
+ ],
+ "removed": []
 }
