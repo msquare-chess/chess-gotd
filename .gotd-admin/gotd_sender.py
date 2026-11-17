@@ -66,6 +66,7 @@ year, res, eco, opening, tags, tagn, gn, story, moves, km, kmu, rev.
     is running, then holds a short lock file (lock/pc.json on the gotd-outbox branch) that the Action waits for.
   - GOTD_DATA (environment) = another data folder: the GitHub Action uses this same file for every check and send.
   - SETUP_ADMIN_APP (gotd_sender.py --setup-admin, admin_setup.py): sets up the Action and the phone (QR).
+  - v7 (KT 353): SEND_GAME_OF_THE_DAY is the only launcher - one_click.py runs whatever is still missing first.
 """
 import base64
 import csv
@@ -96,7 +97,7 @@ import chess.svg
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding
 
-TOOL_VERSION = "v6_2026-11-16"
+TOOL_VERSION = "v7_2026-11-16"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 VERSION_DIR = os.path.dirname(APP_DIR)
 TOOL_ROOT = os.path.dirname(os.path.dirname(VERSION_DIR))          # 42_game-of-the-day
@@ -3588,10 +3589,12 @@ def api_unpair(body):
 
 
 def _qr_svg(text):
+    """KT 352: error correction L (as the phone's own code, KT 337) - a ~920-character join code is version 21 (101
+    squares) instead of 25 (117), and the page draws it big and sharp (index.html .qr), so phones read it at once."""
     import qrcode
     import qrcode.image.svg
-    img = qrcode.make(text, image_factory=qrcode.image.svg.SvgPathImage, box_size=8, border=3,
-                      error_correction=qrcode.constants.ERROR_CORRECT_M)
+    img = qrcode.make(text, image_factory=qrcode.image.svg.SvgPathImage, box_size=8, border=4,
+                      error_correction=qrcode.constants.ERROR_CORRECT_L)
     return img.to_string(encoding="unicode")
 
 
@@ -3946,7 +3949,7 @@ def setup_only():
         JOB.say(f"STOPPED: {e}")
         record(f"setup failed: {e}\n{traceback.format_exc()}")
         JOB.finish("failed")
-        print("\n[ERROR] The setup stopped - the reason is the line above. Fix it and run SETUP_GAME_OF_THE_DAY again;"
+        print("\n[ERROR] The setup stopped - the reason is the line above. Fix it and double-click SEND_GAME_OF_THE_DAY again;"
               " finished steps are skipped.", flush=True)
         sys.exit(3)
     print("\nDONE - now build the app. To send a game: SEND_GAME_OF_THE_DAY.bat", flush=True)
@@ -3983,19 +3986,18 @@ def main():
     if open_path and _forward_open(open_path, puzzle):
         return
     PENDING_OPEN.update({"path": open_path, "puzzle": puzzle})
-    if "--setup" in sys.argv:
+    if "--setup" in sys.argv:                # v1-v6 only (first setup of a brand-new GitHub repository)
         setup_only()
         return
-    if "--integrate" in sys.argv:            # v6: SET_UP_AND_START.bat - right-click menu + desktop shortcut, then the form
-        try:
-            import admin_setup
-            print("  " + admin_setup.integrate(), flush=True)
-        except Exception as e:
-            record(f"integrate skipped: {e}")
-    if "--setup-admin" in sys.argv:          # v5: SETUP_ADMIN_APP.bat
+    if "--setup-admin" in sys.argv:          # v5/v6 menu (1 repair, 2 new keys for every device, 3 test) - rare
         import admin_setup
         admin_setup.main()
         return
+    # v7 (KT 353): ONE click - everything that is still missing, then the form. A stop pauses with what to do; the
+    # next click continues (one_click.py).
+    import one_click
+    if not one_click.run_or_pause():
+        sys.exit(4)
     Handler.token = secrets.token_hex(16)
     server = None
     for port in range(PORT, PORT + 10):
