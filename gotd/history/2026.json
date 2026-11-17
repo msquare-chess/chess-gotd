@@ -1,8 +1,8 @@
 {
  "v": 1,
  "year": "2026",
- "generated": "2026-11-17T09:23:11Z",
- "count": 64,
+ "generated": "2026-11-17T09:49:30Z",
+ "count": 65,
  "sends": [
   {
    "row": "2026-10-15-01",
@@ -1701,6 +1701,36 @@
     "gn": "9",
     "km": "12",
     "kmu": "a2a3"
+   }
+  },
+  {
+   "row": "2026-11-17-04",
+   "kind": "new",
+   "sent_at": "2026-11-17T09:49:27",
+   "push": "sent",
+   "feed": "published",
+   "item": {
+    "key": "ee120700cfd6836d",
+    "sid": "2026-11-17-04",
+    "kind": "new",
+    "title": "Fabilous Attack by Fabiano Caruana",
+    "w": "Fabiano Caruana",
+    "b": "R Praggnanandhaa",
+    "event": "Total Chess Pilot",
+    "year": "2026",
+    "res": "1-0",
+    "eco": "A13",
+    "opening": "English Opening: Agincourt Defense",
+    "tags": "fabiano-caruana-best-games",
+    "story": "Best Chess Combination of 2026 !!",
+    "moves": "c2c4 e7e6 g2g3 d7d5 f1g2 c7c6 g1f3 b7b5 c4b5 c6b5 e1g1 g8f6 d2d3 f8e7 c1e3 e8g8 b1d2 a7a5 d2b3 a5a4 b3d4 b5b4 a1c1 c8b7 d1d2 a8a6 c1c2 b8d7 f1c1 d8b8 g2h3 b7a8 b2b3 a4b3 a2b3 h7h6 e3h6 g7h6 d2h6 f6h7 h3f5 d7f6 c2c7 b8e8 f3e5 e7d8 c7d7 a8c6 d7d8 e8d8 d4e6",
+    "tagn": "fabiano-caruana-best-games=Fabiano Caruana Best Games",
+    "gn": "3",
+    "km": "36",
+    "kmu": "e3h6",
+    "t": "puzzle",
+    "pl": "1",
+    "q": "Find the Caruana's winning move !!"
    }
   }
  ]
