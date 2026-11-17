@@ -1,8 +1,8 @@
 {
  "v": 1,
  "year": "2026",
- "generated": "2026-11-16T14:10:29Z",
- "count": 61,
+ "generated": "2026-11-17T08:08:19Z",
+ "count": 62,
  "sends": [
   {
    "row": "2026-10-15-01",
@@ -1620,6 +1620,33 @@
     "gn": "4",
     "km": "71",
     "kmu": "b7d7"
+   }
+  },
+  {
+   "row": "2026-11-17-01",
+   "kind": "new",
+   "sent_at": "2026-11-17T08:08:15",
+   "push": "sent",
+   "feed": "published",
+   "item": {
+    "key": "e186692be73aa231",
+    "sid": "2026-11-17-01",
+    "kind": "new",
+    "title": "Hikaru - The Master of Chess Endings",
+    "w": "Hikaru Nakamura",
+    "b": "Alexander Lastin",
+    "event": "FIDE World Championship Knockout Tournament",
+    "year": "2004",
+    "res": "1-0",
+    "eco": "D47",
+    "opening": "Semi-Slav Defense: Meran Variation, Wade Variation",
+    "tags": "hikaru-nakamura-best-games",
+    "story": "lets learn chess endings from hikaru nakamura, the master of chess endings",
+    "moves": "c2c4 c7c6 d2d4 d7d5 b1c3 g8f6 e2e3 e7e6 g1f3 b8d7 f1d3 d5c4 d3c4 b7b5 c4d3 c8b7 e1g1 a7a6 e3e4 c6c5 d4d5 d8c7 d5e6 f7e6 d3c2 c5c4 f3d4 d7c5 c1e3 e8c8 d1e2 e6e5 d4f3 c5d3 a2a4 b5b4 c3d5 f6d5 e4d5 e5e4 f3d2 b4b3 c2d3 c4d3 e2g4 c7d7 g4f4 b7d5 f1c1 c8b7 f4e5 f8e7 d2e4 h8e8 e5d4 b7a8 e4d6 e7d6 d4d5 d7b7 d5b7 a8b7 c1c3 d6b4 c3b3 a6a5 g1f1 d3d2 a1d1 b7c6 f1e2 c6d5 b3d3 d5c6 b2b3 d8b8 d3d4 e8e5 e2d3 b4c5 d4c4 b8b3 d3d2 b3b2 d2c3 b2b4 d1d4 h7h5 g2g3 g7g5 h2h4 g5g4 d4f4 b4c4 f4c4 c6b6 c4c5 e5c5 c3d3 b6c6 e3c5 c6c5 d3e3",
+    "tagn": "hikaru-nakamura-best-games=Hikaru Nakamura Best Games",
+    "gn": "3",
+    "km": "70",
+    "kmu": "f1e2"
    }
   }
  ]
