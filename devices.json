@@ -12,18 +12,8 @@
  ],
  "tickets": [
   {
-   "hash": "41dbdc096320a2ffe776b35ff94e57a2f1d3e384c85c42fd05c44e67fcf68644",
-   "expires": 1794837253,
-   "by": "b32f1bfb39c8b08a"
-  },
-  {
-   "hash": "08689bf1464db02c12902462ac9f81b66ed3c20cfea83d16d133858af921cf8c",
-   "expires": 1794837441,
-   "by": "b32f1bfb39c8b08a"
-  },
-  {
-   "hash": "e1aa2ae0447423056896a45fd7e28bbe92e44a624d632266d46a27c7399d6a95",
-   "expires": 1794837541,
+   "hash": "81c99612c3395f78b9fc64c9b94449cd42f6ed80cfdea47f17f409de75095ab7",
+   "expires": 1794920316,
    "by": "b32f1bfb39c8b08a"
   }
  ],
