@@ -1,8 +1,8 @@
 {
  "v": 1,
  "year": "2026",
- "generated": "2026-11-17T09:49:30Z",
- "count": 65,
+ "generated": "2026-11-18T08:17:05Z",
+ "count": 66,
  "sends": [
   {
    "row": "2026-10-15-01",
@@ -1731,6 +1731,32 @@
     "t": "puzzle",
     "pl": "1",
     "q": "Find the Caruana's winning move !!"
+   }
+  },
+  {
+   "row": "2026-11-18-01",
+   "kind": "new",
+   "sent_at": "2026-11-18T08:17:01",
+   "push": "sent",
+   "feed": "published",
+   "item": {
+    "key": "0c5493ac1cdb63fb",
+    "sid": "2026-11-18-01",
+    "kind": "new",
+    "title": "Kholmov vs Tal",
+    "w": "Ratmir Kholmov",
+    "b": "Mikhail Tal",
+    "event": "Simul",
+    "year": "1949",
+    "res": "0-1",
+    "eco": "D44",
+    "opening": "Semi-Slav Defense: Botvinnik Variation",
+    "tags": "simul-1949",
+    "story": "Tal gives up a rook on move 19 and wins.",
+    "moves": "c2c4 e7e6 b1c3 d7d5 d2d4 c7c6 g1f3 g8f6 c1g5 d5c4 e2e4 b7b5 e4e5 h7h6 g5f6 g7f6 e5f6 f8b4 f1e2 d8f6 e1g1 b4c3 b2c3 b8d7 a2a4 c8b7 f3e5 d7e5 d4e5 f6e5 e2f3 a8d8 d1c2 d8d3 a4b5 d3f3 a1a7 e5b5 g2f3 b5g5 g1h1 h8g8",
+    "tagn": "simul-1949=simul-1949",
+    "km": "37",
+    "kmu": "e5b5"
    }
   }
  ]
