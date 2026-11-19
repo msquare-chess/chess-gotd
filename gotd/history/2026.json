@@ -1,8 +1,8 @@
 {
  "v": 1,
  "year": "2026",
- "generated": "2026-11-19T10:50:03Z",
- "count": 69,
+ "generated": "2026-11-19T10:53:13Z",
+ "count": 70,
  "sends": [
   {
    "row": "2026-10-15-01",
@@ -1835,6 +1835,33 @@
     "tagn": "famous-games=Famous games",
     "km": "22",
     "kmu": "g5e6"
+   }
+  },
+  {
+   "row": "2026-11-19-04",
+   "kind": "new",
+   "sent_at": "2026-11-19T16:23:09",
+   "push": "sent",
+   "feed": "published",
+   "item": {
+    "key": "2f169e44da5dc7b1",
+    "sid": "2026-11-19-04",
+    "kind": "new",
+    "title": "Game 2",
+    "w": "Dina Belenkaya",
+    "b": "Megan Althea Paragua",
+    "event": "US Chess Masters",
+    "year": "2023",
+    "res": "1/2-1/2",
+    "eco": "A05",
+    "opening": "Zukertort Opening",
+    "tags": "us-chess-masters-2023,famous-games,fabiano-caruana-best-games,carlsen-best-games",
+    "story": "A hard-fought draw in 82 moves.",
+    "moves": "g1f3 g8f6 g2g3 e7e6 d2d3 d7d5 b1d2 f8e7 e2e4 e8g8 f1g2 b7b6 e4e5 f6d7 e1g1 c8b7 h2h4 c7c5 h4h5 b8c6 h5h6 d7e5 f3e5 c6e5 h6g7 f8e8 d1h5 f7f5 f2f4 e5g4 d2f3 e7f6 g2h3 d8e7 h3g4 f5g4 f3e5 e7g7 e5g4 g8h8 g4f6 g7f6 h5e5 e8f8 c1d2 h8g7 a1e1 a8e8 e5h5 f6g6 h5h4 g6f6 h4h3 g7h8 e1e5 e8e7 f1e1 f8e8 g1f2 b7c6 b2b4 h8g8 g3g4 c5b4 g4g5 f6f7 h3g4 f7g6 d2b4 h7h5 g4e2 e7f7 b4d2 c6d7 e1h1 f7h7 f2g3 e8f8 h1h4 d7c8 d2c3 c8d7 e2e3 f8f7 e3d2 f7f5 e5e2 f5f8 g3h2 f8c8 c3f6 h7f7 d2e3 f7h7 e3f3 c8f8 e2e5 f8c8 e5e2 a7a5 f3e3 c8c6 e3e5 h7f7 h2g3 d7c8 e5d4 c8d7 g3f3 d7c8 f3e3 f7c7 f6e5 c7h7 e2h2 c8d7 e3d2 d7e8 h2h1 g6f5 h1g1 f5g6 a2a4 h7f7 d4e3 f7h7 g1h1 g6f5 h1g1 e8g6 g1b1 h7b7 b1b2 g8f7 e5d4 b7c7 h4h2 f7e8 d4b6 c7c8 b6a5 d5d4 e3e5 c6c2 b2c2 f5d3 d2e1 d3g3 e1d1 g3d3 d1e1 d3g3 e1d1 g3d3 h2d2 d3f1 e5e1 f1f3 e1e2 f3h1 e2e1 h1f3 e1e2 f3h1",
+    "tagn": "us-chess-masters-2023=us-chess-masters-2023|famous-games=Famous games|fabiano-caruana-best-games=Fabiano Caruana Best Games|carlsen-best-games=carlsen_best_games",
+    "gn": "2",
+    "km": "148",
+    "kmu": "e1d1"
    }
   }
  ]
