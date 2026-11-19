@@ -53,6 +53,12 @@ def env(name, required=True):
     return v
 
 
+# KT 400 (18 Nov 2026): GitHub's runners work in UTC - a send between 00:00 and 05:29 India time got YESTERDAY's day
+# number (players' apps listed it under yesterday, not TODAY). The day numbers are India's day, like the PC's.
+os.environ["TZ"] = TZ
+if hasattr(time, "tzset"):
+    time.tzset()
+
 # ── 0. a private data folder for this run, BEFORE gotd_sender is imported (it reads GOTD_DATA at import) ──
 WORK = tempfile.mkdtemp(prefix="gotd_")
 os.environ["GOTD_DATA"] = WORK
@@ -137,7 +143,7 @@ def _age_s(iso):
 def team_key():
     k = os.environ.get("GOTD_TEAM_KEY", "").strip()
     if not k:
-        raise RuntimeError("The team key is not in GitHub's secret store. On the PC run SETUP once.")
+        raise RuntimeError("The team key is not in GitHub's secret store. On the main PC run SEND_GAME_OF_THE_DAY.bat --setup-admin › 1 (repair).")
     return k
 
 
@@ -199,7 +205,7 @@ def main():
     # 1. open + verify BEFORE anything is written: a request that is not from your device leaves no trace but the log.
     inbox = os.environ.get("GOTD_INBOX_KEY2", "")
     if "PRIVATE KEY" not in inbox:
-        fail("GOTD_INBOX_KEY2 missing - run SETUP on the PC", 0)
+        fail("GOTD_INBOX_KEY2 missing - on the main PC run SEND_GAME_OF_THE_DAY.bat --setup-admin › 1 (repair)", 0)
     try:
         envl = sec.open_box(env("REQ_BOX"), req_id, inbox)
         devices = load_devices(gs, cfg)
@@ -230,8 +236,9 @@ def main():
     try:
         outbox(stage="checking")
         if problems and req.get("op") not in ("ping", "devices", "pair_claim", "pair_approve", "pair_ticket", "unpair"):
-            outbox(stage="error", error="Missing in GitHub's secret store: " + ", ".join(problems) + ". On the PC run SETUP once.")
+            outbox(stage="error", error="Missing in GitHub's secret store: " + ", ".join(problems) + ". On the main PC run SEND_GAME_OF_THE_DAY.bat --setup-admin › 1 (repair).")
             return 1
+        ensure_access(gs, cfg)
         wait_pc_lock(gs, cfg)
         err = rebuild_db(gs, cfg)
         if err:
@@ -249,6 +256,24 @@ def main():
         traceback.print_exc(limit=3)
         outbox(stage="error", error=f"The request stopped: {type(e).__name__}: {str(e)[:300]}")
         return 1
+
+
+def ensure_access(gs, cfg):
+    """KT 400: access.json (gotd-outbox) = today's device access token, sealed with the team key. Written only when it
+    is missing or holds another token (best effort - never stops a request)."""
+    door = os.environ.get("GOTD_DOORBELL", "").strip()
+    team = os.environ.get("GOTD_TEAM_KEY", "").strip()
+    if not door or not team:
+        return
+    try:
+        code, text = gs.gh_raw(cfg, sec.ACCESS_PATH, ref=gs.OUTBOX_BRANCH)
+        if code == 200 and text and sec.access_token_of(text, team) == door:
+            return
+        if code not in (200, 404):
+            return
+        gs.publish_file(sec.ACCESS_PATH, sec.access_doc(door, team), "device access (sealed)", branch=gs.OUTBOX_BRANCH)
+    except Exception as e:
+        print(f"[gotd] access file: {type(e).__name__}", flush=True)
 
 
 def pages_build(gs, cfg):
@@ -295,7 +320,8 @@ def game_form(f, test):
 
 def pos_form(f, test):
     return {"fen": f.get("fen", ""), "solution": f.get("solution", ""), "title": f.get("title", ""),
-            "question": f.get("question", ""), "credit": f.get("credit", ""), "tags": f.get("tags", ""), "test": test}
+            "question": f.get("question", ""), "credit": f.get("credit", ""), "tags": f.get("tags", ""),
+            "story": f.get("story", ""), "test": test}                    # KT 390: a position puzzle's story
 
 
 def one_item(gs, it, test, queue):
@@ -318,7 +344,7 @@ def one_item(gs, it, test, queue):
     a = gs.analyse(g)
     if "error" in a:
         return a
-    a["pgn_original"] = pgn if len(games) == 1 else str(g)
+    a["pgn_original"] = gs.export_clean(g)      # KT 372: the chosen game only, plain (no comments / variations / NAGs)
     tok = secrets.token_hex(8)
     gs.Session.analysed[tok] = a
     return gs.do_send({"token": tok, "form": game_form(it.get("form") or {}, test), "choice": it.get("choice", ""), "queue": queue,
@@ -336,8 +362,9 @@ def item_from_row(gs, sid, choice, over):
     tags = ", ".join(t for t in (it.get("tags", "") or "").split(",") if t)
     if it.get("fen"):
         f = {"fen": it["fen"], "solution": it.get("moves", ""), "title": it.get("title", ""), "question": it.get("q", ""),
-             "credit": it.get("event", ""), "tags": tags}
-        f.update({k: v for k, v in over.items() if k in ("title", "question", "credit", "tags", "fen", "solution") and isinstance(v, str)})
+             "credit": it.get("event", ""), "tags": tags, "story": it.get("story", "")}              # KT 390: + story
+        f.update({k: v for k, v in over.items() if k in ("title", "question", "credit", "tags", "fen", "solution", "story")
+                  and isinstance(v, str)})
         out = {"type": "position", "choice": choice, "form": f}
         if choice == "fix" and (over.get("fen") or over.get("solution")):
             out["fix_key"] = it["key"]
@@ -506,7 +533,7 @@ def devices_op(gs, cfg, op, req, dev, devices):
     except Exception:
         inbox_pub = ""
     if not door or not inbox_pub:
-        return {"stage": "error", "error": "GitHub's secret store lacks the device access (GOTD_DOORBELL). On the PC run SETUP once."}
+        return {"stage": "error", "error": "GitHub's secret store lacks the device access (GOTD_DOORBELL). On the main PC run SEND_GAME_OF_THE_DAY.bat --setup-admin › 1 (repair)."}
     new_id = add_device(devices, pub, req.get("label", ""), req.get("kind", "pc"), dev["id"])
     bundle = sec.seal_bundle({"dev": new_id, "token": door, "team": team_key(), "inbox": inbox_pub,
                               "owner": cfg["github_owner"], "repo": cfg["github_repo"], "branch": cfg.get("github_branch") or "main",
@@ -612,6 +639,7 @@ def run_plan(gs, cfg, problems):
         print(f"[gotd] plan: {e}", flush=True)
         return 0
     keepalive(gs, cfg, plan)
+    ensure_access(gs, cfg)
     t = local_now()
     hh, mm = [int(x) for x in plan.get("time", "08:30").split(":")]
     due = [p for p in plan["items"] if p.get("state") == "planned" and
