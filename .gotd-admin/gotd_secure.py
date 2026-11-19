@@ -197,6 +197,25 @@ def team_open(text, team_key_b64, what):
     return json.loads(AESGCM(unb64(team_key_b64)).decrypt(unb64(env["iv"]), unb64(env["ct"]), what.encode()).decode("utf-8"))
 
 
+# KT 400 (18 Nov 2026): the device access token for your devices, sealed with the team key, on the public gotd-outbox
+# branch (access.json). A phone whose saved token was replaced on GitHub reads it WITHOUT a token, opens it with the
+# team key only your devices have, and goes on - no "add the phone again" after a new token on the PC.
+ACCESS_PATH = "access.json"
+ACCESS_WHAT = "gotd-access"
+
+
+def access_doc(token, team_key_b64):
+    return team_seal({"t": token}, team_key_b64, ACCESS_WHAT)
+
+
+def access_token_of(text, team_key_b64):
+    """The token in an access.json text ('' when it cannot be opened)."""
+    try:
+        return str(team_open(text, team_key_b64, ACCESS_WHAT).get("t", ""))
+    except Exception:
+        return ""
+
+
 def seal_label(label, team_key_b64):
     """KT 332: a device's name (phone model / PC name) is sealed in the public devices.json - only your devices read it."""
     return team_seal({"l": str(label)[:30]}, team_key_b64, "gotd-label")
