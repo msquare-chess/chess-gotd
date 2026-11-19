@@ -1,8 +1,8 @@
 {
  "v": 1,
  "year": "2026",
- "generated": "2026-11-18T08:17:05Z",
- "count": 66,
+ "generated": "2026-11-19T10:21:35Z",
+ "count": 67,
  "sends": [
   {
    "row": "2026-10-15-01",
@@ -1757,6 +1757,32 @@
     "tagn": "simul-1949=simul-1949",
     "km": "37",
     "kmu": "e5b5"
+   }
+  },
+  {
+   "row": "2026-11-19-01",
+   "kind": "new",
+   "sent_at": "2026-11-19T15:51:32",
+   "push": "sent",
+   "feed": "published",
+   "item": {
+    "key": "c93b547cc76dbbb7",
+    "sid": "2026-11-19-01",
+    "kind": "new",
+    "title": "Bird vs Lasker",
+    "w": "Henry Edward Bird",
+    "b": "Emanuel Lasker",
+    "event": "Blitz",
+    "year": "1892",
+    "res": "1-0",
+    "eco": "C21",
+    "opening": "Danish Gambit Accepted",
+    "tags": "famous-games",
+    "story": "Bird starts the final attack on move 12 and mates at once.",
+    "moves": "e2e4 e7e5 d2d4 e5d4 c2c3 d4c3 f1c4 c3b2 c1b2 d8g5 g1f3 g5g2 h1g1 f8b4 e1e2 g2h3 c4f7 e8d8 b2g7 g8e7 f3g5 h3h4 g5e6",
+    "tagn": "famous-games=Famous games",
+    "km": "22",
+    "kmu": "g5e6"
    }
   }
  ]
