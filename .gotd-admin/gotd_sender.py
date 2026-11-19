@@ -97,7 +97,7 @@ import chess.svg
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding
 
-TOOL_VERSION = "v8_2026-11-19"
+TOOL_VERSION = "v9_2026-11-19"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 VERSION_DIR = os.path.dirname(APP_DIR)
 TOOL_ROOT = os.path.dirname(os.path.dirname(VERSION_DIR))          # 42_game-of-the-day
@@ -2768,8 +2768,9 @@ def gh_login_quiet(job, exe):
     False = this GitHub CLI version does not work this way; the caller then opens the normal sign-in window."""
     env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
     try:
+        # KT 404: with 'workflow' right away - updating GitHub's copy of the code then needs no second Authorize
         proc = subprocess.Popen([exe, "auth", "login", "--web", "--hostname", "github.com", "--git-protocol", "https",
-                                 "--skip-ssh-key"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                 "--skip-ssh-key", "--scopes", "workflow"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, env=env,
                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except OSError:
@@ -2833,7 +2834,7 @@ def gh_login_window(job, exe):
     """Fallback: GitHub CLI's own sign-in window."""
     job.say("  A black window opens: press Enter for each question there; your browser opens GitHub - paste the "
             "8-letter code shown in that window and click Authorize.")
-    login = [exe, "auth", "login", "--web", "--hostname", "github.com", "--git-protocol", "https"]
+    login = [exe, "auth", "login", "--web", "--hostname", "github.com", "--git-protocol", "https", "--scopes", "workflow"]
     if os.name == "nt":
         subprocess.Popen(["cmd", "/c", "start", "GitHub sign-in", "cmd", "/k"] + login)
     else:
@@ -3383,7 +3384,6 @@ class _Remote:
         self.dev = ""
         self.inbox = ""
         self.workflow = ADMIN_WORKFLOW
-        self.pending = {}                 # pairing id -> (device key, transfer key) while a new PC waits
 
     def load(self):
         try:
@@ -3469,7 +3469,8 @@ def _run_end_reason(conclusion):
         return "GitHub cancelled this request before it ran. Send it again."
     if conclusion == "success":
         return ("GitHub refused this request: this PC is not (or no longer) in your device list, or its clock is more than "
-                "15 minutes off. Check Setup › Your devices and the PC's date and time, then try again.")
+                "15 minutes off. Check the PC's date and time, then close this window and double-click SEND_GAME_OF_THE_DAY "
+                "again (it adds this PC again by itself).")
     return "The GitHub Action stopped with an error. Try again; if it repeats, open GitHub › Actions › gotd-admin to see why."
 
 
@@ -3664,12 +3665,12 @@ def api_repeat(body):
         st = remote_request("repeat", fields)
         remote_refresh()
         return _as_ui(st)
-    return {"error": "Pair this PC first (Setup)."}
+    return {"error": "This PC is not set up yet - double-click SEND_GAME_OF_THE_DAY again."}
 
 
 def _admin_op(op, fields=None):
     if not REMOTE.active():
-        return {"error": "Pair this PC first (Setup)."}
+        return {"error": "This PC is not set up yet - double-click SEND_GAME_OF_THE_DAY again."}
     st = remote_request(op, fields or {})
     remote_refresh()
     return _as_ui(st)
@@ -3733,7 +3734,7 @@ def api_tags_all(_):
 
 def _plan_op(op, fields=None):
     if not REMOTE.active():
-        return {"error": "Pair this PC first (Setup)."}
+        return {"error": "This PC is not set up yet - double-click SEND_GAME_OF_THE_DAY again."}
     st = remote_request(op, fields or {})
     if st.get("stage") != "done":
         return _as_ui(st)
@@ -3758,7 +3759,7 @@ def _plan_view(plan):
 def api_plan(_):
     """KT 332: read straight from GitHub (sealed with your team key) - seconds, not a GitHub run."""
     if not REMOTE.active():
-        return {"error": "Pair this PC first (Setup)."}
+        return {"error": "This PC is not set up yet - double-click SEND_GAME_OF_THE_DAY again."}
     code, text = gh_raw(load_config(), "plan/plan.json", ref=OUTBOX_BRANCH)
     if code == 404:
         return _plan_view({})
@@ -3811,7 +3812,7 @@ def api_plan_time(body):
 def api_devices(_):
     """KT 332: read straight from GitHub (names sealed with your team key) - seconds, not a GitHub run."""
     if not REMOTE.active():
-        return {"error": "Pair this PC first (Setup)."}
+        return {"error": "This PC is not set up yet - double-click SEND_GAME_OF_THE_DAY again."}
     code, text = gh_raw(load_config(), "devices.json", ref=OUTBOX_BRANCH)
     if code != 200 or not text:
         return {"error": "Your devices could not be read from GitHub. Check the internet and try again."}
@@ -3829,16 +3830,6 @@ def api_unpair(body):
     return _plan_op("unpair", {"dev": body.get("dev", "")})
 
 
-def _qr_svg(text):
-    """KT 352: error correction L (as the phone's own code, KT 337) - a ~920-character join code is version 21 (101
-    squares) instead of 25 (117), and the page draws it big and sharp (index.html .qr), so phones read it at once."""
-    import qrcode
-    import qrcode.image.svg
-    img = qrcode.make(text, image_factory=qrcode.image.svg.SvgPathImage, box_size=8, border=4,
-                      error_correction=qrcode.constants.ERROR_CORRECT_L)
-    return img.to_string(encoding="unicode")
-
-
 def _b64u(obj):
     return base64.urlsafe_b64encode(json.dumps(obj, separators=(",", ":")).encode()).decode().rstrip("=")
 
@@ -3854,98 +3845,51 @@ def _repo_hint():
         return {}
 
 
-def api_pair_start(body):
-    """A NEW PC shows its public keys as a code; a device you use approves it (nothing secret in the code)."""
-    hint = _repo_hint()
-    owner, repo = body.get("owner") or hint.get("github_owner", ""), body.get("repo") or hint.get("github_repo", "")
-    if not owner or not repo:
-        return {"error": "Type your GitHub user name and the repository (chess-gotd)."}
-    key, xfer = sec.new_ec_key(), sec.new_ec_key()
-    pid = secrets.token_hex(8)
-    label = clean(body.get("label", "") or os.environ.get("COMPUTERNAME", "") or "PC", 30)
-    REMOTE.pending = {pid: (key, xfer, owner, repo, hint.get("github_branch", "main"), label, time.time())}
-    text = "GOTDPAIR2:" + _b64u({"v": 2, "pid": pid, "pub": sec.pub_der_b64(key), "xfer": sec.pub_der_b64(xfer),
-                                 "label": label, "kind": "pc"})
-    return {"pid": pid, "code": text, "short": f"{pid[:3].upper()} · {pid[3:6].upper()}", "svg": _qr_svg(text), "expires_s": 600}
-
-
-def api_pair_poll(body):
-    pid = body.get("pid", "")
-    pend = REMOTE.pending.get(pid)
-    if not pend:
-        return {"error": "Start again (the code is no longer valid)."}
-    key, xfer, owner, repo, branch, label, t0 = pend
-    if time.time() - t0 > 600:
-        REMOTE.pending.pop(pid, None)
-        return {"error": "The code expired (10 minutes). Start again."}
-    url = f"https://api.github.com/repos/{owner}/{repo}/contents/outbox/pair/{pid}.json?ref={OUTBOX_BRANCH}"
-    code, resp = http_json(url, None, {"Accept": "application/vnd.github+json", "User-Agent": "gotd-sender",
-                                       "X-GitHub-Api-Version": "2022-11-28"})
-    raw_text = None
-    if code in (403, 429):
-        # KT 332: GitHub allows 60 sign-in-free reads an hour - then read the file from GitHub's file server instead
-        try:
-            rq = urllib.request.Request(f"https://raw.githubusercontent.com/{owner}/{repo}/{OUTBOX_BRANCH}/outbox/pair/{pid}.json",
-                                        headers={"User-Agent": "gotd-sender", "Cache-Control": "no-cache"})
-            with urllib.request.urlopen(rq, timeout=15) as r:
-                raw_text = r.read().decode("utf-8")
-        except Exception:
-            return {"waiting": True}
-    elif code != 200 or not isinstance(resp, dict) or not resp.get("content"):
-        return {"waiting": True}
+def save_pairing(got, key, label):
+    """KT 404: keep the device access GitHub sealed to this PC (its own key + the access + team + inbox keys) - the
+    PC is one of your devices from now on. A store this Windows user cannot open any more is kept aside, not lost."""
+    store = sec.PrivateStore(DATA)
+    old = {}
     try:
-        bundle = json.loads(raw_text) if raw_text is not None else json.loads(base64.b64decode(resp["content"]))
-        got = sec.open_bundle(bundle, pid, xfer)
+        old = store.load() or {}
     except Exception:
-        return {"error": "The approval could not be opened. Start again."}
-    if got.get("dev") != sec.device_id(sec.pub_der_b64(key)):
-        return {"error": "That approval was for another device. Start again."}
-    sec.PrivateStore(DATA).save({"key": sec.key_pem(key), "token": got["token"], "team": got["team"], "inbox": got["inbox"],
-                                 "workflow": got.get("workflow") or ADMIN_WORKFLOW})
+        if os.path.exists(store.path):
+            aside = store.path + ".old-" + dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+            os.replace(store.path, aside)
+            record(f"the old protected keys could not be opened here - kept aside as {aside}")
+    store.save({"key": sec.key_pem(key), "token": got["token"], "team": got["team"], "inbox": got["inbox"],
+                "workflow": got.get("workflow") or ADMIN_WORKFLOW, "recovery": old.get("recovery") or {}})
     cfg = load_config()
     cfg.update({"github_owner": got["owner"], "github_repo": got["repo"], "github_branch": got.get("branch") or "main",
                 "mode": "remote", "admin_enabled": True, "paired_at": now_iso(), "device_label": label})
     cfg.pop("github_token", None)
     save_config(cfg)
-    REMOTE.pending.pop(pid, None)
+    try:
+        with open(REPO_HINT, "w", encoding="utf-8") as f:
+            json.dump({"github_owner": got["owner"], "github_repo": got["repo"], "github_branch": got.get("branch") or "main"}, f)
+    except OSError:
+        pass
     REMOTE.load()
-    record(f"PAIRED this PC ({label}) - device {REMOTE.dev}")
-    threading.Thread(target=remote_refresh, daemon=True).start()
-    return {"paired": True, "label": label}
+    record(f"SET UP this PC ({label}) with the owner's GitHub sign-in - device {REMOTE.dev}")
 
 
-def api_add_phone(_):
-    """This PC shows a one-time QR (10 minutes) a NEW phone scans: it holds the access for your devices, so it is shown
-    only here, on your own screen, never sent anywhere."""
+def phone_join_code(hours=22):
+    """KT 404: the one-time setup code a phone's app build carries (BUILD_ADMIN_APK): the phone joins by itself when it
+    is opened (no scan, no approval). Single use; the ticket ends after [hours] (the Action allows up to a day)."""
     if not REMOTE.active():
-        return {"error": "Pair this PC first."}
+        return {"error": "This PC is not set up yet - double-click SEND_GAME_OF_THE_DAY once first."}
     ticket = secrets.token_urlsafe(24)
-    exp = int(time.time()) + 600
+    # KT 404 audit 8: at most 22 h by THIS PC's clock - the Action allows 24 h by GitHub's, so a PC clock up to 2 h
+    # fast still works (it was 24 h - 60 s: a PC one minute fast got "bad ticket")
+    exp = int(time.time()) + int(min(hours, 22) * 3600)
     st = remote_request("pair_ticket", {"hash": sec.ticket_hash(ticket), "expires": exp})
     if st.get("stage") != "done":
-        return _as_ui(st)
+        return {"error": st.get("error") or "GitHub did not answer. Check the internet and try again."}
     cfg = load_config()
     text = "GOTDJOIN2:" + _b64u({"v": 2, "o": cfg["github_owner"], "r": cfg["github_repo"], "b": cfg.get("github_branch") or "main",
                                  "w": REMOTE.workflow, "k": REMOTE.inbox, "t": REMOTE.token, "m": REMOTE.team,
                                  "tk": ticket, "x": exp})
-    return {"svg": _qr_svg(text), "expires_s": 600}
-
-
-def api_approve(body):
-    """Approve a new PC / phone from its pairing code (pasted, or read by this PC's camera)."""
-    text = (body.get("code") or "").strip()
-    if not text.startswith("GOTDPAIR2:"):
-        return {"error": "That is not a pairing code (it starts with GOTDPAIR2:)."}
-    try:
-        raw = text[len("GOTDPAIR2:"):]
-        p = json.loads(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
-        sec.load_pub(p["pub"]); sec.load_pub(p["xfer"])
-        if not sec.safe_id(p["pid"], 32):
-            raise ValueError
-    except Exception:
-        return {"error": "The pairing code is damaged. Copy it again."}
-    return _plan_op("pair_approve", {"pid": p["pid"], "pub": p["pub"], "xfer": p["xfer"],
-                                     "label": clean(p.get("label", ""), 30), "kind": p.get("kind", "pc")})
+    return {"code": text, "expires": exp}
 
 
 def api_positions(body):
@@ -4098,7 +4042,7 @@ def _paired(fn_remote):
     """v6: on a PC every send / change goes through the GitHub Action, signed by this PC (no keys here)."""
     def w(body):
         if not REMOTE.active():
-            return {"error": "This PC is not paired yet. Setup tab › Show my code (your phone approves it)."}
+            return {"error": "This PC is not set up yet. Close this window and double-click SEND_GAME_OF_THE_DAY again - it sets the PC up by itself."}
         return fn_remote(body)
     return w
 
@@ -4116,14 +4060,14 @@ ROUTES.update({
     "/api/delete_all": api_delete_all, "/api/restore_builtins": api_restore_builtins, "/api/undo": api_undo,
     "/api/backups": api_backups, "/api/refresh": api_refresh, "/api/autofill": api_autofill, "/api/tags_all": api_tags_all,
     "/api/plan": api_plan, "/api/plan_add": api_plan_add, "/api/plan_remove": api_plan_remove, "/api/plan_move": api_plan_move,
-    "/api/plan_time": api_plan_time, "/api/devices": api_devices, "/api/unpair": api_unpair, "/api/pair_start": api_pair_start,
-    "/api/pair_poll": api_pair_poll, "/api/add_phone": api_add_phone, "/api/approve": api_approve, "/api/mode": api_mode,
+    "/api/plan_time": api_plan_time, "/api/devices": api_devices, "/api/unpair": api_unpair,
+    "/api/mode": api_mode,
     "/api/open_file": api_open_file, "/api/open_set": api_open_set, "/api/positions": api_positions, "/api/legal": api_legal,
     "/api/paste": api_paste,
     "/api/ping": _paired(r_ping),        # v8 (KT 401)
 })
 for _k in ("/api/setup", "/api/apply", "/api/export_seed", "/api/autosetup", "/api/quick"):
-    ROUTES[_k] = (lambda f: (lambda body: f(body) if not REMOTE.active() or _k_allowed(f) else {"error": "Not needed on a paired PC."}))(ROUTES[_k])
+    ROUTES[_k] = (lambda f: (lambda body: f(body) if not REMOTE.active() or _k_allowed(f) else {"error": "Not needed on this PC (it sends through GitHub)."}))(ROUTES[_k])
 
 
 def _k_allowed(f):
