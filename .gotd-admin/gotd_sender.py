@@ -4162,6 +4162,9 @@ def _forward_open(path, puzzle):
 
 
 def main():
+    # KT 404 audit 13: run as a script this file is "__main__"; one_click / admin_setup "import gotd_sender" would load
+    # a SECOND copy, so a setup they finish (REMOTE) never reached the page ("This PC is not set up yet"). One copy.
+    sys.modules.setdefault("gotd_sender", sys.modules[__name__])
     os.makedirs(DATA, exist_ok=True)
     init_db()
     REMOTE.load()                 # v6 (KT 331): a paired PC - no Firebase / feed / inbox key on this PC
@@ -4184,6 +4187,7 @@ def main():
     import one_click
     if not one_click.run_or_pause():
         sys.exit(4)
+    REMOTE.load()                            # KT 404 audit 13: what the one-click steps just set up
     Handler.token = secrets.token_hex(16)
     server = None
     for port in range(PORT, PORT + 10):
