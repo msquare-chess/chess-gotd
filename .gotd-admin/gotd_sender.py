@@ -97,7 +97,7 @@ import chess.svg
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding
 
-TOOL_VERSION = "v7_2026-11-16"
+TOOL_VERSION = "v8_2026-11-19"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 VERSION_DIR = os.path.dirname(APP_DIR)
 TOOL_ROOT = os.path.dirname(os.path.dirname(VERSION_DIR))          # 42_game-of-the-day
@@ -335,9 +335,197 @@ def puzzle_line(a, ply):
     return pl, q, " ".join(parts)
 
 
+# ── KT 372 (17 Nov 2026, conversation "PlayWithEngine_2026-09-28 deep analysis / Arasan integration"): every site's PGN
+# (Chess.com live / daily / analysis, Lichess game / study / broadcast, chessgames.com, ChessBase, TWIC, chess24,
+# 365chess, text copied from web pages) is first turned into plain PGN: headers + main-line moves + result. Comments
+# {..} / ; .., variations (..), NAGs $n, % lines, clocks / evals / arrows and move glyphs (!, ?, ±, N ...) are dropped,
+# so nobody's annotations are ever stored or sent. Copy-paste quirks are fixed: smart quotes in headers, several
+# headers on one line, figurines (♘f3), "…", ½-½, en dashes, 0-0, e.p., ++, invisible / non-breaking spaces.
+# The Admin app (GotdLogic.kt Pgn.read) does exactly the same, step by step.
+_PGN_KEY_FIRST = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+_PGN_KEY_REST = _PGN_KEY_FIRST | set("_+#=:-")
+_PGN_SMART_QUOTES = str.maketrans({c: '"' for c in "\u201c\u201d\u201e\u201f\u2033\xab\xbb"})
+_PGN_SPACES = re.compile("[\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\u0085\t\x0b\x0c]")
+_PGN_INVISIBLE = re.compile("[\u200b\u200c\u200d\u2060\ufeff\xad]")
+_PGN_DASHES = str.maketrans({c: "-" for c in "\u2010\u2011\u2012\u2013\u2014\u2015\u2212"})
+_PGN_FIGURINES = str.maketrans({"♔": "K", "♚": "K", "♕": "Q", "♛": "Q", "♖": "R", "♜": "R",
+                                "♗": "B", "♝": "B", "♘": "N", "♞": "N", "♙": "", "♟": ""})
+_PGN_GLYPHS = set("!?+-=/±∓⩲⩱∞□⨀○●→←↑↓⇆⇄⇔Δ∇⌓⊥⟳‼⁇⁉⁈")
+_PGN_TRAIL = "".join(sorted(_PGN_GLYPHS - set("+-=/")))    # glyphs stripped off the end of a move (Nf3±, Qxf7!!)
+_PGN_RESULTS = ("1-0", "0-1", "1/2-1/2", "*")
+_PGN_SCAN = re.compile(r"\{[^}]*\}?|;[^\n]*|[()}]|[ ]+|[^ \n{};()]+")
+PGN_MAX_GAMES = 200
+
+
+def _pgn_header_line(line):
+    """'[Event "x"] [Site "y"]' -> [("Event", "x"), ("Site", "y")]; None when the line is not only header pairs.
+    Read by hand (no regex), the same way as the Admin app - safe on any line, however long."""
+    out, i, n = [], 0, len(line)
+    while True:
+        while i < n and line[i] == " ":
+            i += 1
+        if i == n:
+            return out or None
+        if line[i] != "[":
+            return None
+        i += 1
+        while i < n and line[i] == " ":
+            i += 1
+        k0 = i
+        if i < n and line[i] in _PGN_KEY_FIRST:
+            i += 1
+            while i < n and line[i] in _PGN_KEY_REST:
+                i += 1
+        key = line[k0:i]
+        if not key or i >= n or line[i] != " ":
+            return None
+        while i < n and line[i] == " ":
+            i += 1
+        if i >= n or line[i] != '"':
+            return None
+        i += 1
+        val = []
+        while i < n and line[i] != '"':
+            if line[i] == "\\":
+                if i + 1 >= n:
+                    return None
+                val.append(line[i + 1])
+                i += 2
+            else:
+                val.append(line[i])
+                i += 1
+        if i >= n:
+            return None
+        i += 1
+        while i < n and line[i] == " ":
+            i += 1
+        if i >= n or line[i] != "]":
+            return None
+        i += 1
+        out.append((key, "".join(val)))
+
+
+def _pgn_token(tok):
+    """One movetext token -> ("result", r) | ("move", san) | None (dropped)."""
+    if tok.startswith("$"):                            # NAG ($1 good move, $146 novelty ...)
+        return None
+    t = tok.translate(_PGN_DASHES).replace("\xbd", "1/2").replace("\u2026", "...")   # 1/2 sign, ellipsis
+    if t in _PGN_RESULTS:
+        return ("result", t)
+    t = re.sub(r"^[0-9]+\.+", "", t)                  # 12. / 12... / 12.e4 / 12...Qd5
+    if t in _PGN_RESULTS:
+        return ("result", t)
+    if not t or set(t) <= {"."}:
+        return None
+    if t.lower() in ("e.p.", "e.p", "ep"):
+        return None
+    t = t.translate(_PGN_FIGURINES)
+    if t in ("N", "TN", "") or (t != "--" and set(t) <= _PGN_GLYPHS):
+        return None
+    t = re.sub(r"(?<=[1-8])e\.?p\.?$", "", t)          # exd6e.p.
+    t = t.rstrip(_PGN_TRAIL)
+    t = re.sub(r"(\+/?[-=]|[-=]/?\+)$", "", t)          # an evaluation glued on: Nf3+- / Nf3=+ / Nf3+/=
+    t = re.sub(r"\+{2,}$", "+", t)                     # old double check ++
+    m = re.match(r"^[0Oo]-[0Oo](-[0Oo])?(?=[+#]?$)", t)
+    if m:
+        t = ("O-O-O" if m.group(1) else "O-O") + t[m.end():]
+    return ("move", t) if t else None
+
+
+def clean_pgn(text, max_games=PGN_MAX_GAMES):
+    """Any site's PGN -> [{"headers": [(k, v)], "moves": [san tokens], "result": r or None}] (comments etc. dropped)."""
+    text = _PGN_INVISIBLE.sub("", (text or "").replace("\r\n", "\n").replace("\r", "\n"))
+    text = _PGN_SPACES.sub(" ", text)
+    games, cur = [], None
+    depth, in_moves, pos, n = 0, False, 0, len(text)
+
+    def flush():
+        nonlocal cur, depth, in_moves
+        if cur and (cur["headers"] or cur["moves"]):
+            games.append(cur)
+        cur, depth, in_moves = None, 0, False
+
+    line_start = True
+    while pos < n and len(games) < max_games:
+        if line_start:
+            line_start = False
+            eol = text.find("\n", pos)
+            eol = n if eol < 0 else eol
+            line = text[pos:eol].strip()
+            if line.startswith("%"):
+                pos = eol
+                continue
+            if line.startswith("["):
+                pairs = _pgn_header_line(line.translate(_PGN_SMART_QUOTES))
+                if pairs:
+                    if in_moves:
+                        flush()
+                    if cur is None:
+                        cur = {"headers": [], "moves": [], "result": None}
+                    for k, v in pairs:
+                        cur["headers"] = [(a, b) for a, b in cur["headers"] if a != k] + [(k, v)]
+                    pos = eol
+                    continue
+        if text[pos] == "\n":
+            pos += 1
+            line_start = True
+            continue
+        m = _PGN_SCAN.match(text, pos)
+        s = m.group(0)
+        pos = m.end()
+        c = s[0]
+        if c in "{;} ":
+            continue
+        if c == "(":
+            depth += 1
+            continue
+        if c == ")":
+            depth = max(0, depth - 1)
+            continue
+        if depth:
+            continue
+        r = _pgn_token(s)
+        if r is None:
+            continue
+        if cur is None:
+            cur = {"headers": [], "moves": [], "result": None}
+        in_moves = True
+        if r[0] == "result":
+            cur["result"] = r[1]
+        else:
+            cur["moves"].append(r[1])
+    flush()
+    for g in games:      # a result only in the moves fills a missing / unknown Result header
+        hd = dict(g["headers"])
+        if g["result"] in ("1-0", "0-1", "1/2-1/2") and hd.get("Result") not in ("1-0", "0-1", "1/2-1/2"):
+            g["headers"] = [(a, b) for a, b in g["headers"] if a != "Result"] + [("Result", g["result"])]
+    return games[:max_games]
+
+
+def _pgn_escape(v):
+    return v.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def clean_pgn_text(text, max_games=PGN_MAX_GAMES):
+    """The same games as plain PGN text (headers + moves + result) - what python-chess reads and what is stored / sent."""
+    out = []
+    for g in clean_pgn(text, max_games):
+        head = "".join(f'[{k} "{_pgn_escape(v)}"]\n' for k, v in g["headers"])
+        res = g["result"] or dict(g["headers"]).get("Result") or "*"
+        if res not in _PGN_RESULTS:
+            res = "*"
+        out.append(head + "\n" + " ".join(g["moves"] + [res]) + "\n")
+    return "\n".join(out)
+
+
+def export_clean(g):
+    """One parsed game as plain PGN: headers + numbered main line, no comments / variations / NAGs."""
+    return g.accept(chess.pgn.StringExporter(headers=True, variations=False, comments=False)).strip() + "\n"
+
+
 def read_games(pgn_text):
     games = []
-    stream = io.StringIO(pgn_text)
+    stream = io.StringIO(clean_pgn_text(pgn_text))
     while len(games) < 200:
         g = chess.pgn.read_game(stream)
         if g is None:
@@ -795,9 +983,19 @@ def github_reason(code, resp, cfg):
     text = _short(resp)
     if code == 0:
         why = "No internet on this PC (or GitHub cannot be reached). Check the connection, then press 'Finish it'."
+    elif code == 401 and REMOTE.token:
+        # KT 395: this PC's device access token (the one SEND_GAME_OF_THE_DAY checks at every start) - the old advice
+        # ("Contents: Read and write, then Setup step 2") was wrong for it.
+        why = ("GitHub does not accept this PC's device access token any more (it was deleted, regenerated or has "
+               "expired on GitHub). Close this window and double-click SEND_GAME_OF_THE_DAY - it asks for your token, "
+               "checks it and goes on. Then send again.")
     elif code == 401:
         why = ("The GitHub token has expired or is wrong. Make a new one: GitHub > Settings > Developer settings > "
                f"Fine-grained tokens (only {repo}, Contents: Read and write), then Setup step 2.")
+    elif code == 403 and "dispatch" in text:     # KT 374: starting the Action was refused - an Actions permission
+        why = (f"The GitHub token may not start the Action on {repo}. Edit the token (GitHub > Settings > Developer "
+               f"settings > Fine-grained tokens): Repository access = {repo}, Permissions > Actions = Read and write, "
+               "Contents = Read-only. (Or GitHub limits were hit - wait a few minutes.)")
     elif code == 403:
         why = (f"The GitHub token may not write to {repo}. Edit the token: Repository access = {repo}, "
                "Permissions > Contents = Read and write. (Or GitHub limits were hit - wait a few minutes.)")
@@ -1419,7 +1617,7 @@ def api_parse(body):
     a = analyse(g)
     if "error" in a:
         return a
-    a["pgn_original"] = text if len(games) == 1 else str(g)
+    a["pgn_original"] = export_clean(g)      # KT 372: the chosen game only, plain (no comments / variations / NAGs)
     tok = secrets.token_hex(8)
     Session.analysed[tok] = a
     while len(Session.analysed) > 5:          # the last few chosen games only
@@ -1431,12 +1629,19 @@ def api_parse(body):
             corr = con.execute("SELECT key,title FROM games WHERE white=? AND black=? AND event=? AND round=? AND key!=?",
                                (a["white"], a["black"], a["event"], a["round"], a["key"])).fetchall()
         tags = [dict(r) for r in con.execute("SELECT id,name FROM tags ORDER BY name").fetchall()]
+        # v8 (KT 401, as the Admin app): a game sent before comes back with the story it was last sent with
+        last = con.execute("SELECT item FROM sends WHERE key=? AND test=0 AND push_status!='queued' ORDER BY sid DESC LIMIT 1",
+                           (a["key"],)).fetchone()
+    try:
+        prev_story = json.loads(last["item"]).get("story", "") if last else ""
+    except ValueError:
+        prev_story = ""
     return {
         "token": tok, "white": a["white"], "black": a["black"], "event": a["event"], "year": a["year"],
         "result": a["result"], "eco": a["eco"], "opening": a["opening"], "round": a["round"], "plies": a["plies"],
         "moves": (a["plies"] + 1) // 2, "key": a["key"], "svg": a["final_svg"], "sans": a["sans"],
         "title": a["title_suggest"], "tag": a["tag_suggest"], "tags": tags,
-        "sent_before": [dict(r) for r in prev], "correction_of": [dict(r) for r in corr],
+        "sent_before": [dict(r) for r in prev], "correction_of": [dict(r) for r in corr], "story": prev_story,
     }
 
 
@@ -1515,7 +1720,9 @@ def do_send(body):
     story = clean(form.get("story", ""), MAX_STORY + 100)
     if not title:
         return {"error": "Type a title."}
-    if not story:
+    if not story and not is_puzzle_form(form):
+        # KT 390 (18 Nov 2026): a game needs its story; a puzzle's story is optional (it shows after solving), like
+        # the phone admin app ("shown after the puzzle") - before, the phone said optional and this refused it.
         return {"error": "Type the story (2-3 lines in your own words)."}
     if len(story) > MAX_STORY:
         return {"error": f"The story is {len(story)} characters; keep it under {MAX_STORY}."}
@@ -1655,7 +1862,7 @@ def do_send(body):
 
 MATE_CHECK_MAX = 4
 SEARCH_NODES = 600_000
-POS_MAX_TITLE = 60
+POS_MAX_TITLE = 80        # KT 390 (18 Nov 2026): 80 like a game's title (was 60)
 POS_MAX_CREDIT = 60
 POS_MAX_Q = 40
 
@@ -2073,7 +2280,7 @@ def pos_item(fen, uci, form, key, sid, kind, rev=0):
     it = {"key": key, "sid": sid, "kind": kind, "t": "puzzle", "title": clean(form["title"], POS_MAX_TITLE),
           "fen": fen, "moves": " ".join(uci), "km": "0", "kmu": uci[0], "pl": str(len(uci)),
           "q": clean(form.get("question", ""), POS_MAX_Q), "event": clean(form.get("credit", ""), POS_MAX_CREDIT),
-          "tags": ",".join(tags)}
+          "tags": ",".join(tags), "story": clean(form.get("story", ""), 400)}     # KT 390: the story (optional)
     names = [f"{t['id']}={clean(t['name'], 40)}" for t in form["tags"] if t["id"] in tags and t.get("name")]
     if names:
         it["tagn"] = "|".join(names)
@@ -2120,6 +2327,9 @@ def do_send_position(body):
     q = clean(form.get("question", ""), 200) or a["question"]
     if len(q) > POS_MAX_Q:
         return {"error": f"The question is {len(q)} characters; keep it under {POS_MAX_Q}."}
+    story = clean(form.get("story", ""), MAX_STORY + 100)          # KT 390: optional, shown after the puzzle is solved
+    if len(story) > MAX_STORY:
+        return {"error": f"The story is {len(story)} characters; keep it under {MAX_STORY}."}
     test = bool(form.get("test"))
     queue = bool(body.get("queue"))
     if queue and test:
@@ -2147,7 +2357,13 @@ def do_send_position(body):
         if not tgt or not json.loads(tgt["item"]).get("fen"):
             return {"error": "The puzzle to fix is not in the history (or is not a puzzle from a position)."}
         key, kind = fix_key, "fix"
-    fnorm = {"title": title, "question": q, "credit": form.get("credit", ""), "tags": match_tags(form.get("tags", ""))}
+    fnorm = {"title": title, "question": q, "credit": form.get("credit", ""), "tags": match_tags(form.get("tags", "")),
+             "story": story}
+    # KT 390: the same 4 KB push check as a game (the story can now make a position puzzle long).
+    tl = too_long(pos_item(a["fen"], a["uci"] if "uci" in a else [], fnorm, key, "2000-01-01-01", kind))
+    if tl and tl["cut"]:
+        return {"error": f"Too long for the push by {tl['over']} bytes. Shorten the story by about {tl['cut']} characters "
+                         "(letters that are not English count up to 3 each), then press Send again."}
     backup_db()
     if choice == "resend" and prev:
         with db() as con:
@@ -2177,8 +2393,8 @@ def do_send_position(body):
         con.execute(
             "INSERT INTO games(key,title,white,black,event,year,result,eco,opening,round,tags,story,moves,plies,key_ply,"
             "key_uci,pgn_original,created_at,fen) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET "
-            "title=excluded.title, event=excluded.event, tags=excluded.tags, fen=excluded.fen",
-            (key, item["title"], "", "", item.get("event", ""), "", "*", "", "", "", item.get("tags", ""), "",
+            "title=excluded.title, event=excluded.event, tags=excluded.tags, story=excluded.story, fen=excluded.fen",
+            (key, item["title"], "", "", item.get("event", ""), "", "*", "", "", "", item.get("tags", ""), item.get("story", ""),
              item["moves"], len(item["moves"].split()), 0, item["kmu"], "", now_iso(), item["fen"]))
         for t in fnorm["tags"]:
             if not t.get("known") and TAG_RE.match(t["id"]):
@@ -2364,7 +2580,9 @@ def api_history(body):
     with db() as con:
         games = con.execute(
             "SELECT * FROM games WHERE lower(title) LIKE ? OR lower(white) LIKE ? OR lower(black) LIKE ? OR lower(event) LIKE ? "
-            "OR lower(tags) LIKE ? OR lower(opening) LIKE ?", (q, q, q, q, q, q)).fetchall()
+            "OR lower(tags) LIKE ? OR lower(opening) LIKE ? "
+            # v8 (KT 401, as the Admin app): the day number too ("2026-11-18-02", "11-18")
+            "OR key IN (SELECT key FROM sends WHERE lower(sid) LIKE ?)", (q, q, q, q, q, q, q)).fetchall()
         out = []
         for g in games:
             sends = con.execute("SELECT sid,kind,sent_at,test,push_status,push_detail,feed_status,feed_detail,push_bytes "
@@ -3173,16 +3391,17 @@ class _Remote:
         except Exception as e:
             record(f"paired keys could not be opened: {e}")
             st = None
-        if not st:
+        if not st or not st.get("key"):
             return False
+        # KT 387: a store without a token (or team / inbox) is read as "not paired" - never a crash at start
         self.key = sec.key_from_pem(st["key"])
-        self.token, self.team, self.inbox = st["token"], st["team"], st["inbox"]
+        self.token, self.team, self.inbox = st.get("token") or "", st.get("team") or "", st.get("inbox") or ""
         self.dev = sec.device_id(sec.pub_der_b64(self.key))
         self.workflow = st.get("workflow") or ADMIN_WORKFLOW
         return True
 
     def active(self):
-        return bool(self.key and self.token)
+        return bool(self.key and self.token and self.team and self.inbox)
 
 
 REMOTE = _Remote()
@@ -3327,7 +3546,7 @@ def r_send(body):
     test, queue, choice = bool(form.get("test")), bool(body.get("queue")), body.get("choice", "")
     if not clean(form.get("title", ""), MAX_TITLE):
         return {"error": "Type a title."}
-    if not clean(form.get("story", ""), MAX_STORY + 100):
+    if not clean(form.get("story", ""), MAX_STORY + 100) and not is_puzzle_form(form):   # KT 390: optional for a puzzle
         return {"error": "Type the story (2-3 lines in your own words)."}
     kp = key_move(form.get("keymove", ""), a["sans"], a["uci"])
     if "error" in kp:
@@ -3336,6 +3555,8 @@ def r_send(body):
     if is_puzzle_form(form) and not pz:
         return {"error": "A puzzle needs its key move (the move the player has to find), e.g. 16.Qb8+."}
     key = puzzle_key(a["uci"], kp["ply"]) if pz else a["key"]
+    if queue and not test and any(x.get("key") == key for x in _rq_load()):     # v8 (KT 401, as the Admin app)
+        return {"error": "This one is already in today's list."}
     if not test and not body.get("fix_key"):
         need = _precheck(key, choice, a)
         if need:
@@ -3350,7 +3571,7 @@ def r_send(body):
         if test:
             return {"error": "Test sends go out one by one - untick Test send to add to today's list."}
         q = _rq_load()
-        q.append({"qid": f"q{len(q) + 1}-{secrets.token_hex(2)}", "item": item, "title": clean(form.get("title", ""), MAX_TITLE),
+        q.append({"qid": f"q{len(q) + 1}-{secrets.token_hex(2)}", "item": item, "key": key, "title": clean(form.get("title", ""), MAX_TITLE),
                   "kind": choice or "new", "puzzle": bool(pz), "question": (pz or {}).get("q", ""),
                   "players": f"{a['white']} vs {a['black']}", "line": f"key move {form.get('keymove', '')}" if pz else ""})
         _rq_save(q)
@@ -3367,18 +3588,21 @@ def r_send_position(body):
         bad = [c["text"] for c in a.get("checks", []) if c["kind"] == "bad"]
         return {"error": bad[0] if bad else "Check the position and the solution."}
     test, queue, choice = bool(form.get("test")), bool(body.get("queue")), body.get("choice", "")
+    if queue and not test and any(x.get("key") == a["key"] for x in _rq_load()):   # v8 (KT 401, as the Admin app)
+        return {"error": "This one is already in today's list."}
     if not test and not body.get("fix_key"):
         need = _precheck(a["key"], choice)
         if need:
             return need
-    item = {"type": "position", "choice": choice, "form": {k: form.get(k, "") for k in ("fen", "solution", "title", "question", "credit", "tags")}}
+    item = {"type": "position", "choice": choice,
+            "form": {k: form.get(k, "") for k in ("fen", "solution", "title", "question", "credit", "tags", "story")}}   # KT 390
     if body.get("fix_key"):
         item["fix_key"] = body["fix_key"]
     if queue:
         if test:
             return {"error": "Test sends go out one by one - untick Test send to add to today's list."}
         q = _rq_load()
-        q.append({"qid": f"q{len(q) + 1}-{secrets.token_hex(2)}", "item": item, "title": clean(form.get("title", ""), POS_MAX_TITLE),
+        q.append({"qid": f"q{len(q) + 1}-{secrets.token_hex(2)}", "item": item, "key": a["key"], "title": clean(form.get("title", ""), POS_MAX_TITLE),
                   "kind": choice or "new", "puzzle": True, "question": form.get("question", "") or a.get("question", ""),
                   "players": "puzzle position", "line": "solution " + form.get("solution", ""), "position": True})
         _rq_save(q)
@@ -3410,6 +3634,19 @@ def r_send_queue(_):
     return r
 
 
+def r_ping(_):
+    """v8 (KT 401, as the Admin app's Setup › Check GitHub now): a sealed test through the whole path - nothing is sent
+    to players. The last answer is kept (Setup shows it)."""
+    r = _as_ui(remote_request("ping", {}))
+    if r.get("ping"):
+        cfg = load_config()
+        cfg["last_ping"] = f"{dt.datetime.now():%d %b %Y %H:%M} - GitHub answered ({r.get('history_rows', 0)} history rows)"
+        save_config(cfg)
+        r["last_ping"] = cfg["last_ping"]
+        record(f"CHECK GITHUB: {cfg['last_ping']}")
+    return r
+
+
 def r_retry(body):
     st = remote_request("retry", {"sid": body.get("sid", "")})
     remote_refresh()
@@ -3419,6 +3656,10 @@ def r_retry(body):
 def api_repeat(body):
     """History: feature again / resend / fix (title, story, tags, key move, question - or a whole new PGN / position)."""
     fields = {"sid": body.get("sid", ""), "choice": body.get("choice", ""), "form": body.get("form") or {}}
+    if isinstance(fields["form"].get("pgn"), str) and fields["form"]["pgn"].strip():   # KT 372: a corrected PGN goes plain
+        plain = clean_pgn_text(fields["form"]["pgn"])
+        if plain.strip():           # nothing readable: sent as it is, so the Action still says what is wrong
+            fields["form"]["pgn"] = plain
     if REMOTE.active():
         st = remote_request("repeat", fields)
         remote_refresh()
@@ -3546,7 +3787,7 @@ def api_plan_add(body):
                       "title": clean(form.get("title", ""), MAX_TITLE)})
     elif body.get("position"):
         form = body["position"]
-        items.append({"type": "position", "choice": body.get("choice", ""), "form": {k: form.get(k, "") for k in ("fen", "solution", "title", "question", "credit", "tags")},
+        items.append({"type": "position", "choice": body.get("choice", ""), "form": {k: form.get(k, "") for k in ("fen", "solution", "title", "question", "credit", "tags", "story")},   # KT 390: + story
                       "title": clean(form.get("title", ""), POS_MAX_TITLE)})
     if not items:
         return {"error": "Nothing to plan."}
@@ -3576,7 +3817,7 @@ def api_devices(_):
         return {"error": "Your devices could not be read from GitHub. Check the internet and try again."}
     d = json.loads(text)
     week = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return {"me": REMOTE.dev,
+    return {"me": REMOTE.dev, "last_ping": load_config().get("last_ping", ""),       # v8 (KT 401)
             "devices": [{"id": x["id"], "label": sec.device_label(x, REMOTE.team), "kind": x.get("kind", ""),
                          "added": x.get("added", ""), "new": x.get("added", "") > (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")}
                         for x in d.get("devices", [])],
@@ -3879,6 +4120,7 @@ ROUTES.update({
     "/api/pair_poll": api_pair_poll, "/api/add_phone": api_add_phone, "/api/approve": api_approve, "/api/mode": api_mode,
     "/api/open_file": api_open_file, "/api/open_set": api_open_set, "/api/positions": api_positions, "/api/legal": api_legal,
     "/api/paste": api_paste,
+    "/api/ping": _paired(r_ping),        # v8 (KT 401)
 })
 for _k in ("/api/setup", "/api/apply", "/api/export_seed", "/api/autosetup", "/api/quick"):
     ROUTES[_k] = (lambda f: (lambda body: f(body) if not REMOTE.active() or _k_allowed(f) else {"error": "Not needed on a paired PC."}))(ROUTES[_k])
