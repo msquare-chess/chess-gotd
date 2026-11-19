@@ -14,6 +14,8 @@ Every phone (Admin app) and every paired PC sends its requests here. This script
   5. writes the progress / answer to outbox/<id>.json (gotd-outbox) - nothing secret: a plan or a device bundle is
      sealed for your devices only.
 Scheduled runs (no request): send what the week plan has for now (Asia/Kolkata time, see plan "time").
+v9 (19 Nov 2026, KT 404): no device approves another any more. A PC signed in to YOUR GitHub account adds itself
+(owner_pairs below); a phone is set up by the PC that builds its app (a one-time join code inside the build).
 
 Logs are public (public repo): nothing secret is printed. Secrets: GOTD_INBOX_KEY2, GOTD_FIREBASE_KEY, GOTD_FEED_KEY,
 GOTD_FEED_KEY_SPARE, GOTD_TEAM_KEY (plan + results), GOTD_DOORBELL (the access a newly paired device receives).
@@ -34,6 +36,9 @@ MAX_AGE_S = 6 * 3600
 PAIR_MAX_AGE_S = 20 * 60
 MAX_ITEMS = 20
 MAX_DEVICES = 20
+OWNER_PAIR_PREFIX = "ownerpair-"        # KT 404: a run started by a PC adding itself with your GitHub sign-in
+OWNER_PAIR_MAX_S = 2 * 3600             # KT 404 audit 3: room for a PC clock 30 minutes off
+TICKET_MAX_S = 24 * 3600                # KT 404: the phone's join code ships inside the app build (was 15 minutes)
 NEW_DEVICE_WAIT_S = 24 * 3600          # KT 332: a device added less than a day ago cannot remove your other devices
 KEEPALIVE_DAYS = 40                    # KT 332: GitHub stops scheduled runs after 60 days without activity
 DEVICES_PATH = "devices.json"
@@ -191,10 +196,13 @@ def main():
     problems = prepare_secrets()
     import gotd_sender as gs                      # noqa: E402  (after GOTD_DATA)
     cfg = gs.load_config()
+    owner_pairs(gs, cfg)                          # KT 404: PCs adding themselves with your GitHub sign-in
     if scheduled:
         return run_plan(gs, cfg, problems)
 
     req_id = env("REQ_ID").strip()
+    if req_id.startswith(OWNER_PAIR_PREFIX):      # that run only had to add the PC (above)
+        return 0
     if not sec.safe_id(req_id):
         fail("bad request id", 0)
     out_path = f"outbox/{req_id}.json"
@@ -502,7 +510,7 @@ def devices_op(gs, cfg, op, req, dev, devices):
         return {"stage": "done", "result": sealed({"devices": public_devices(devices), "title": "Device removed"})}
     if op == "pair_ticket":
         h, exp = str(req.get("hash", "")), int(req.get("expires", 0) or 0)
-        if not re.match(r"^[0-9a-f]{64}$", h) or not nowt < exp <= nowt + 900:
+        if not re.match(r"^[0-9a-f]{64}$", h) or not nowt < exp <= nowt + TICKET_MAX_S:
             return {"stage": "error", "error": "bad ticket"}
         devices["tickets"].append({"hash": h, "expires": exp, "by": dev["id"]})
         save_devices(gs, devices, f"ticket by {dev['id']}")
@@ -513,36 +521,70 @@ def devices_op(gs, cfg, op, req, dev, devices):
         h = sec.ticket_hash(str(req.get("ticket", "")))
         t = next((x for x in devices["tickets"] if x.get("hash") == h and int(x.get("expires", 0)) > nowt), None)
         if not t:
-            return {"stage": "error", "error": "This code was used already or has expired. Show a new one on your other device."}
+            return {"stage": "error", "error": "This app's setup code was used already or has expired. On your PC double-click BUILD_ADMIN_APK again (it installs the app with a new one)."}
         devices["tickets"] = [x for x in devices["tickets"] if x is not t]
         add_device(devices, req["_pub"], req.get("label", ""), req.get("kind", "phone"), t.get("by", ""))
         save_devices(gs, devices, "paired a device (ticket)")
         return {"stage": "done", "result": {"title": "Paired"}}
-    # pair_approve: a device you use approves the public keys a new device showed
-    pid, pub, xfer = str(req.get("pid", "")), str(req.get("pub", "")), str(req.get("xfer", ""))
+    # KT 404 (v9): pair_approve is gone - no device approves another one any more (a PC adds itself with your GitHub
+    # sign-in, owner_pairs; a phone gets a join code inside its app build). An older app asking is refused.
+    return {"stage": "error", "error": "Approving a device is not used any more - on the new PC just double-click SEND_GAME_OF_THE_DAY."}
+
+
+def owner_pairs(gs, cfg):
+    """KT 404 (owner: no approvals - "click the .bat and send"): a PC signed in to YOUR GitHub account writes
+    {pid, pub, xfer, label, expires (<= 2 h)} into devices.json "owner_pairs" and starts a run. Only your own GitHub sign-in or
+    this Action can write devices.json (the devices' shared token can only read and start runs), so such an entry is
+    you. Here the PC is added to your devices and gets the device access sealed to its one-time key
+    (outbox/pair/<pid>.json, as an approval did before). Runs at the start of every run; never stops a run."""
     try:
-        sec.load_pub(pub)
-        sec.load_pub(xfer)
-    except Exception:
-        return {"stage": "error", "error": "The pairing code is damaged."}
-    if not sec.safe_id(pid, 32):
-        return {"stage": "error", "error": "The pairing code is damaged."}
+        devices = load_devices(gs, cfg)
+    except Exception as e:
+        print(f"[gotd] owner pairs: devices not readable ({type(e).__name__})", flush=True)
+        return
+    asks = devices.get("owner_pairs") or []
+    if not asks:
+        return
     door = os.environ.get("GOTD_DOORBELL", "").strip()
     try:
         inbox_pub = sec.pub_der_b64(sec.key_from_pem(os.environ.get("GOTD_INBOX_KEY2", "")).public_key())
+        team = team_key()
     except Exception:
-        inbox_pub = ""
-    if not door or not inbox_pub:
-        return {"stage": "error", "error": "GitHub's secret store lacks the device access (GOTD_DOORBELL). On the main PC run SEND_GAME_OF_THE_DAY.bat --setup-admin › 1 (repair)."}
-    new_id = add_device(devices, pub, req.get("label", ""), req.get("kind", "pc"), dev["id"])
-    bundle = sec.seal_bundle({"dev": new_id, "token": door, "team": team_key(), "inbox": inbox_pub,
-                              "owner": cfg["github_owner"], "repo": cfg["github_repo"], "branch": cfg.get("github_branch") or "main",
-                              "workflow": gs.ADMIN_WORKFLOW}, pid, xfer)
-    ok, detail = gs.publish_file(f"outbox/pair/{pid}.json", json.dumps(bundle), f"pairing {pid}", branch=gs.OUTBOX_BRANCH)
-    if not ok:
-        return {"stage": "error", "error": "The approval could not be saved: " + detail}
-    save_devices(gs, devices, f"approved {new_id}")
-    return {"stage": "done", "result": {"title": "Approved"}}
+        inbox_pub, team = "", ""
+    nowt = int(time.time())
+    added = 0
+    for a in asks[-5:]:
+        pid, pub, xfer = str(a.get("pid", "")), str(a.get("pub", "")), str(a.get("xfer", ""))
+        if not sec.safe_id(pid, 32) or not nowt < int(a.get("expires", 0) or 0) <= nowt + OWNER_PAIR_MAX_S:
+            continue
+        try:
+            sec.load_pub(pub)
+            sec.load_pub(xfer)
+        except Exception:
+            continue
+        if not door or not inbox_pub or not team:
+            err = "GitHub's secret store lacks the device access. On the main PC run SEND_GAME_OF_THE_DAY.bat --setup-admin › 1 (repair)."
+        elif len(devices["devices"]) >= MAX_DEVICES and not any(d["id"] == sec.device_id(pub) for d in devices["devices"]):
+            err = f"You have {MAX_DEVICES} devices already - remove an old one in Setup › Your devices first."
+        else:
+            err = ""
+        if err:
+            gs.publish_file(f"outbox/pair/{pid}.json", json.dumps({"error": err}), f"pairing {pid}", branch=gs.OUTBOX_BRANCH)
+            continue
+        new_id = add_device(devices, pub, a.get("label", "") or "PC", "pc", "owner sign-in")
+        bundle = sec.seal_bundle({"dev": new_id, "token": door, "team": team, "inbox": inbox_pub,
+                                  "owner": cfg["github_owner"], "repo": cfg["github_repo"], "branch": cfg.get("github_branch") or "main",
+                                  "workflow": gs.ADMIN_WORKFLOW}, pid, xfer)
+        ok, detail = gs.publish_file(f"outbox/pair/{pid}.json", json.dumps(bundle), f"pairing {pid}", branch=gs.OUTBOX_BRANCH)
+        if ok:
+            added += 1
+        else:
+            print(f"[gotd] owner pair {pid}: not saved ({detail[:120]})", flush=True)
+    devices["owner_pairs"] = []
+    try:
+        save_devices(gs, devices, f"{added} PC(s) added by your GitHub sign-in")
+    except Exception as e:
+        print(f"[gotd] owner pairs: devices not saved ({type(e).__name__})", flush=True)
 
 
 def add_device(devices, pub_b64, label, kind, by):
