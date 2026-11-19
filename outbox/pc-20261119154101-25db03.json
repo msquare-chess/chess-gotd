@@ -1,1 +1,1 @@
-{"id": "pc-20261119154101-25db03", "stage": "checking", "started": "2026-11-19T10:10:37Z", "updated": "2026-11-19T10:10:37Z", "steps": {}}
+{"id": "pc-20261119154101-25db03", "stage": "done", "started": "2026-11-19T10:10:37Z", "updated": "2026-11-19T10:10:39Z", "steps": {}, "result": {"ping": true, "version": "v9_2026-11-19", "history_rows": 66, "firebase_project": "chess-app-375e2", "feed_key": true, "devices": 1}}
