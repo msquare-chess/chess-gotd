@@ -130,7 +130,7 @@ def verify_envelope(env, req_id, devices):
         return req, None
     dev = next((d for d in devices if d.get("id") == env.get("dev")), None)
     if not dev:
-        raise ValueError("This device is not (or no longer) one of your devices. Add it again from a device you use.")
+        raise ValueError("This device is not (or no longer) one of your devices. Set it up again (PC: SEND_GAME_OF_THE_DAY, phone: BUILD_ADMIN_APK).")
     try:
         load_pub(dev["pub"]).verify(sig, signed_bytes(req_id, req_json), ec.ECDSA(hashes.SHA256()))
     except InvalidSignature:
