@@ -42,6 +42,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check -q -r .gotd-admin/requirements.txt
       - name: Check and do
         env:
+          TZ: Asia/Kolkata     # KT 400: the day numbers are India's day (GitHub's runners are UTC)
           REQ_ID: ${{ inputs.id }}
           REQ_BOX: ${{ inputs.box }}
           GOTD_INBOX_KEY2: ${{ secrets.GOTD_INBOX_KEY2 }}
