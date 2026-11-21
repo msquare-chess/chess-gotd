@@ -1,8 +1,8 @@
 {
  "v": 1,
  "year": "2026",
- "generated": "2026-11-19T10:53:13Z",
- "count": 70,
+ "generated": "2026-11-21T09:09:11Z",
+ "count": 71,
  "sends": [
   {
    "row": "2026-10-15-01",
@@ -1862,6 +1862,35 @@
     "gn": "2",
     "km": "148",
     "kmu": "e1d1"
+   }
+  },
+  {
+   "row": "2026-11-21-01",
+   "kind": "again",
+   "sent_at": "2026-11-21T14:39:08",
+   "push": "sent",
+   "feed": "published",
+   "item": {
+    "key": "b19f74a25c69a00b",
+    "sid": "2026-11-21-01",
+    "kind": "again",
+    "title": "The Immortal Game",
+    "w": "Adolf Anderssen",
+    "b": "Lionel Kieseritzky",
+    "event": "London",
+    "year": "1851",
+    "res": "1-0",
+    "eco": "C33",
+    "opening": "King's Gambit Accepted: Bishop's Gambit, Bryan Countergambit",
+    "tags": "famous-games",
+    "story": "White gives up both rooks, a bishop and the queen. Three minor pieces finish the job with mate.",
+    "moves": "e2e4 e7e5 f2f4 e5f4 f1c4 d8h4 e1f1 b7b5 c4b5 g8f6 g1f3 h4h6 d2d3 f6h5 f3h4 h6g5 h4f5 c7c6 g2g4 h5f6 h1g1 c6b5 h2h4 g5g6 h4h5 g6g5 d1f3 f6g8 c1f4 g5f6 b1c3 f8c5 c3d5 f6b2 f4d6 c5g1 e4e5 b2a1 f1e2 b8a6 f5g7 e8d8 f3f6 g8f6 d6e7",
+    "tagn": "famous-games=Famous games",
+    "km": "40",
+    "kmu": "f5g7",
+    "t": "puzzle",
+    "pl": "5",
+    "q": "Mate in 3"
    }
   }
  ]
