@@ -67,6 +67,15 @@ year, res, eco, opening, tags, tagn, gn, story, moves, km, kmu, rev.
   - GOTD_DATA (environment) = another data folder: the GitHub Action uses this same file for every check and send.
   - SETUP_ADMIN_APP (gotd_sender.py --setup-admin, admin_setup.py): sets up the Action and the phone (QR).
   - v7 (KT 353): SEND_GAME_OF_THE_DAY is the only launcher - one_click.py runs whatever is still missing first.
+
+20 Nov 2026 (v10, KT section 418, Claude conversation "PlayWithEngine_2026-09-28 deep analysis / Arasan integration";
+owner: "yep fix it, do very carefully" - the 3 feed-key guards after the 19 Nov incident, KT 405):
+  1. No silent new feed key: a missing key is restored from the key backup (data/KEY_BACKUP, the data folder, Downloads)
+     or the spare; a NEW key is made only on a true first setup (the app project trusts no key yet AND GitHub confirms
+     no feed is published yet). Otherwise it stops with what to do (FeedKeyMissing) - nothing is signed or written.
+  2. admin_setup step 3: this PC's feed key goes into GitHub's secret store only when the app trusts it (gotd_config.xml);
+     an untrusted key stops the setup and GitHub's key is kept.
+  3. "Write into the app project" never replaces the app's trusted keys with a key the app does not trust.
 """
 import base64
 import csv
@@ -97,7 +106,7 @@ import chess.svg
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding
 
-TOOL_VERSION = "v9_2026-11-19"
+TOOL_VERSION = "v10_2026-11-20"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 VERSION_DIR = os.path.dirname(APP_DIR)
 TOOL_ROOT = os.path.dirname(os.path.dirname(VERSION_DIR))          # 42_game-of-the-day
@@ -1078,12 +1087,85 @@ def restore_keys_if_missing():
     return False
 
 
-def signing_key(create=True):
+class FeedKeyMissing(Exception):
+    """v10 (KT 418, guard 1): the feed key is missing here, but the app already trusts a key - a new one would make every
+    phone drop the pushes and the feed (the 19 Nov 2026 incident, KT 405). Nothing was made, signed or written.
+    [known] = True when the app / GitHub show that a key already exists (False = GitHub could not be asked yet)."""
+
+    def __init__(self, msg, known=True):
+        super().__init__(msg)
+        self.known = known
+
+
+_SIZE_ONLY = threading.local()        # v10: the form's size preview may sign with a throw-away key (never saved / sent)
+
+
+def app_trusted_keys(cfg=None):
+    """v10 (KT 418): the feed keys the app trusts (gotd_config.xml of the app project, as the app reads it: commas /
+    spaces / new lines). [] = the project has none yet (first setup); None = no app project found on this PC."""
+    cfg = cfg if cfg is not None else load_config()
+    proj = cfg.get("project_path", "") or guess_project()
+    path = os.path.join(proj, "app", "src", "main", "res", "values", "gotd_config.xml") if proj else ""
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            xml = f.read()
+    except OSError:
+        return None
+    m = re.search(r'<string name="gotd_feed_public_key"[^>]*>(.*?)</string>', xml, flags=re.S)
+    if not m:
+        return []
+    return [k for k in re.split(r"[,\s]+", m.group(1).strip()) if k]
+
+
+def _feed_published(cfg):
+    """v10 (KT 418): True / False = GitHub says a feed is / is not published; None = could not be checked."""
+    if not github_ready(cfg) or not github_token(cfg):
+        return None
+    try:
+        branch = cfg.get("github_branch") or "main"
+        code, _ = gh(cfg, "GET", f"/contents/{FEED_PATH}?ref={urllib.parse.quote(branch)}")
+    except Exception:
+        return None
+    return True if code == 200 else (False if code == 404 else None)
+
+
+def _new_key_refused(cfg):
+    """v10 (KT 418, guard 1): (why a NEW feed key must not be made now, a key surely exists already) - ("", _) = a true
+    first setup, making one is fine."""
+    trusted = app_trusted_keys(cfg)
+    if trusted:
+        return "the app already trusts feed keys (gotd_config.xml in your chess-project)", True
+    published = _feed_published(cfg)
+    if published is True:
+        return f"a Game of the Day feed is already published on GitHub ({cfg.get('github_owner')}/{cfg.get('github_repo')})", True
+    if published is None:
+        return ("GitHub could not confirm that no feed is published yet (GitHub not set up here, or no internet) - "
+                "a key is made only on the very first setup"), False
+    return "", False
+
+
+def signing_key(create=True, first_setup=False):
+    """The current feed key. v10 (KT 418, guard 1): missing -> restored from the key backup / spare first; a NEW key
+    only on a true first setup (see _new_key_refused) or when [first_setup] is passed on purpose (tests); otherwise
+    FeedKeyMissing (what to do) - never a silent new key."""
+    if not os.path.exists(SIGNING_KEY) and create and not getattr(_SIZE_ONLY, "on", False):
+        restore_keys_if_missing()
     if os.path.exists(SIGNING_KEY):
         key = _load_key(SIGNING_KEY)
+    elif getattr(_SIZE_ONLY, "on", False):
+        return ec.generate_private_key(ec.SECP256R1())     # size preview only: in memory, never saved or sent
     elif not create:
         return None
     else:
+        why, known = ("", False) if first_setup else _new_key_refused(load_config())
+        if why:
+            record(f"feed key missing - no new key made ({why})")
+            raise FeedKeyMissing(
+                f"The feed signing key is missing on this PC ({SIGNING_KEY}) and {why}. A new key would make every phone "
+                f"ignore your games, so none was made. Put your key backup file {KEY_BACKUP_NAME} in Downloads (or copy "
+                "your old data folder here), then start SEND_GAME_OF_THE_DAY again - it is restored by itself.", known)
         key = ec.generate_private_key(ec.SECP256R1())
         _write_key(SIGNING_KEY, key)
         record("created the feed signing key (data/feed_signing_key.pem) - keep it private, never share it")
@@ -1684,8 +1766,14 @@ def api_preview(body):
     pz = puzzle_of(a, form, kp)
     key = puzzle_key(a["uci"], kp["ply"]) if pz else a["key"]
     item = item_for(a, form_norm(form), key, sid, "new", kp, puzzle=pz)
-    data, size, extras = build_push(item, bool(form.get("test")))
-    return {"bytes": size, "limit": PUSH_LIMIT, "extras": extras, "too_long": too_long(item)}
+    # v10 (KT 418): the size check never makes a key file (a PC that sends through GitHub has none) - same size.
+    _SIZE_ONLY.on = True
+    try:
+        data, size, extras = build_push(item, bool(form.get("test")))
+        long_ = too_long(item)
+    finally:
+        _SIZE_ONLY.on = False
+    return {"bytes": size, "limit": PUSH_LIMIT, "extras": extras, "too_long": long_}
 
 
 def is_puzzle_form(form):
@@ -2620,7 +2708,11 @@ def api_setup(body):
     if body.get("github_token"):
         cfg["github_token"] = body["github_token"].strip()
     save_config(cfg)
-    signing_key(create=True)
+    try:
+        signing_key(create=True)
+    except FeedKeyMissing as e:            # v10 (KT 418): the settings are saved; the key is not made here
+        if e.known:                        # a first setup before GitHub: quiet (the key is made with the first feed)
+            msgs.append(str(e))
     if body.get("test_github"):
         if not github_ready(cfg):
             return {"error": "Fill GitHub name, repository and token first."}
@@ -2644,11 +2736,25 @@ def api_apply_to_project(_):
     path = os.path.join(proj, "app", "src", "main", "res", "values", "gotd_config.xml")
     if not proj or not os.path.exists(path):
         return {"error": f"Not found: {path}. Put the chess-project folder (the one with gradlew.bat) in Setup."}
-    urls, pub = feed_urls(cfg), public_key_b64()
+    urls = feed_urls(cfg)
     if not urls:
         return {"error": "Fill the GitHub name and repository first."}
+    try:
+        pub = public_key_b64()
+    except FeedKeyMissing as e:            # v10 (KT 418, guard 1)
+        return {"error": str(e), "untrusted": True}
     with open(path, encoding="utf-8") as f:
         xml = f.read()
+    # v10 (KT 418, guard 3): never replace the keys the app trusts with a key it does not trust (the 19 Nov incident).
+    m = re.search(r'<string name="gotd_feed_public_key"[^>]*>(.*?)</string>', xml, flags=re.S)
+    trusted = [k for k in re.split(r"[,\s]+", m.group(1).strip()) if k] if m else []
+    current = pub.split(",")[0]
+    if trusted and current not in trusted:
+        record(f"setup: gotd_config.xml NOT written - this PC's feed key is not one the app trusts ({path})")
+        return {"untrusted": True, "error": (
+            "Not written: this PC's feed key is not one of the keys the app trusts (gotd_config.xml). Writing it would "
+            f"make every phone ignore your games. Put your key backup file {KEY_BACKUP_NAME} in Downloads (or copy "
+            "your old data folder here), move this PC's data\\feed_signing_key*.pem files to another folder, then start SEND_GAME_OF_THE_DAY again.")}
     new = re.sub(r'(<string-array name="gotd_feed_urls"[^>]*>)(.*?)(</string-array>)',
                  lambda m: m.group(1) + "".join(f"\n        <item>{u}</item>" for u in urls) + f"\n    {m.group(3)}",
                  xml, flags=re.S)
@@ -2947,6 +3053,8 @@ def github_setup(job):
             cfg["project_path"] = guess
             save_config(cfg)
     res = api_apply_to_project(None)
+    if res.get("untrusted"):                   # v10 (KT 418, guard 3)
+        raise RuntimeError(res["error"])
     if res.get("error"):
         job.say("  " + res["error"] + " Fill the chess-project folder and press 'Write both into the app project'.")
     else:
@@ -3036,6 +3144,8 @@ def setup_all(job):
     # KT 299: the app must trust the current AND the spare key - refresh gotd_config.xml every time (no change = no write).
     if feed_urls(load_config()):
         res = api_apply_to_project(None)
+        if res.get("untrusted"):               # v10 (KT 418, guard 3): stop - nothing is signed with that key
+            raise RuntimeError("App project: " + res["error"])
         for m in ([res["error"]] if res.get("error") else res.get("messages", [])):
             job.say("App project: " + m)
     path = write_key_backup()
