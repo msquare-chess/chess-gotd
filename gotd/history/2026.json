@@ -1,8 +1,8 @@
 {
  "v": 1,
  "year": "2026",
- "generated": "2026-11-21T09:09:11Z",
- "count": 71,
+ "generated": "2026-11-21T09:11:47Z",
+ "count": 72,
  "sends": [
   {
    "row": "2026-10-15-01",
@@ -1891,6 +1891,35 @@
     "t": "puzzle",
     "pl": "5",
     "q": "Mate in 3"
+   }
+  },
+  {
+   "row": "2026-11-21-02",
+   "kind": "again",
+   "sent_at": "2026-11-21T14:41:44",
+   "push": "sent",
+   "feed": "published",
+   "item": {
+    "key": "a042d1b2f2466504",
+    "sid": "2026-11-21-02",
+    "kind": "again",
+    "title": "The Evergreen Game",
+    "w": "Adolf Anderssen",
+    "b": "Jean Dufresne",
+    "event": "Berlin",
+    "year": "1852",
+    "res": "1-0",
+    "eco": "C52",
+    "opening": "Italian Game: Evans Gambit, Dufresne Defense",
+    "tags": "famous-games",
+    "story": "A queen sacrifice on d7 opens the way, and the two bishops chase the black king to mate.",
+    "moves": "e2e4 e7e5 g1f3 b8c6 f1c4 f8c5 b2b4 c5b4 c2c3 b4a5 d2d4 e5d4 e1g1 d4d3 d1b3 d8f6 e4e5 f6g6 f1e1 g8e7 c1a3 b7b5 b3b5 a8b8 b5a4 a5b6 b1d2 c8b7 d2e4 g6f5 c4d3 f5h5 e4f6 g7f6 e5f6 h8g8 a1d1 h5f3 e1e7 c6e7 a4d7 e8d7 d3f5 d7e8 f5d7 e8f8 a3e7",
+    "tagn": "famous-games=Famous games",
+    "km": "40",
+    "kmu": "a4d7",
+    "t": "puzzle",
+    "pl": "7",
+    "q": "Mate in 4"
    }
   }
  ]
